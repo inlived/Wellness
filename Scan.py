@@ -5,6 +5,9 @@ import tkinter as tk
 from tkinter import filedialog
 import sqlite3
 import re
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.dates import DateFormatter
 
 # Функция для выбора нескольких файлов пользователем
 def upload_images():
@@ -17,16 +20,14 @@ def upload_images():
     else:
         return None
 
-
 # Функция для распознавания текста с изображения
 def ocr_image(path):
     try:
-        img = Image.open(path)
-        text = pytesseract.image_to_string(img, lang='rus+eng')  # Замените 'eng' на нужный вам язык
+        img = Image.open(path).convert('L')
+        text = pytesseract.image_to_string(img, lang='rus', config='--psm 4')  # Замените 'eng' на нужный вам язык
         return text
     except Exception as e:
         print(f"Ошибка при обработке изображения {path}: {e}")
-
 
 def create_database():
     conn = sqlite3.connect('medical_tests.db')
@@ -46,11 +47,9 @@ def create_database():
     conn.commit()
     conn.close()
 
-
 # Функция для подключения к базе данных
 def connect_db():
     return sqlite3.connect('medical_tests.db')
-
 
 # Функция для добавления данных общего анализа крови в базу данных
 def insert_general_blood_test(data):
@@ -84,12 +83,13 @@ def insert_general_blood_test(data):
 
 # Функция для обработки распознанного текста и извлечения данных анализов
 def process_recognized_text(text):
-    # Регулярное выражение для даты взятия анализа
-    date_regex = r'''(?:Дата\s*(?:взятия\s*(?:биоматериала|анализа|образца)|анализа|приёма|сдачи|исследования|получения|регистрации\s*заказа))\s*[:\-]?\s*(\d{1,2}[.\-/]\d{1,2}[.\-/]\d{2,4})  # Формат даты'''
+    # Регулярное выражение для даты взятия анализаS
+    date_regex = r'(?:Дата|Дата и время)\s*(?:взятия\s*(?:биоматериала|анализа|образца)|анализа|приёма|сдачи|исследования|получения|регистрации\s*(?:заказа)|)\s*[:\-]?\s*(\d{1,2}[.\-\/]\d{1,2}[.\-\/]\d{2,4})'
+    hemoglobin_regex = r'Гемоглобин\s*(?:\(\w*\d*\)|)[:\s:\-]+(\d+\.?\d*)'
 
     # Регулярное выражение для извлечения показателей общего анализа крови
     general_blood_test_data = {
-        'hemoglobin': re.search(r'Гемоглобин[:\s]+(\d+\.?\d*)', text, re.IGNORECASE),
+        'hemoglobin': re.search(hemoglobin_regex, text, re.IGNORECASE),
         'date': re.search(date_regex, text, re.IGNORECASE)
     }
 
@@ -112,6 +112,55 @@ def process_recognized_text(text):
         insert_general_blood_test(general_blood_test_data)
         print("Данные общего анализа крови добавлены.")
 
+# Функция для получения данных из базы данных
+def get_hemoglobin_data():
+    conn = sqlite3.connect('medical_tests.db')
+    cursor = conn.cursor()
+
+    # Извлекаем данные о гемоглобине и дате
+    cursor.execute('''
+        SELECT hemoglobin, date
+        FROM general_blood_test
+        WHERE hemoglobin IS NOT NULL AND date IS NOT NULL
+        ORDER BY date
+    ''')
+
+    # Получаем все строки
+    data = cursor.fetchall()
+
+    conn.close()
+
+    # Преобразуем данные в DataFrame для удобства
+    df = pd.DataFrame(data, columns=['hemoglobin', 'date'])
+    df['date'] = pd.to_datetime(df['date'])  # Преобразуем дату в формат datetime
+    return df
+
+# Функция для отображения таблицы данных и построения графика
+def display_table_and_plot():
+    # Получаем данные
+    df = get_hemoglobin_data()
+
+    # Вывод таблицы с результатами
+    print("Таблица данных анализа крови (гемоглобин и дата):")
+    print(df)
+
+    # Построение графика
+    plt.figure(figsize=(10, 6))
+    plt.plot(df['date'], df['hemoglobin'], marker='o', linestyle='-', color='b')
+
+    # Настраиваем оси и форматирование дат
+    plt.xlabel('Дата')
+    plt.ylabel('Гемоглобин (г/л)')
+    plt.title('Зависимость уровня гемоглобина от даты')
+
+    # Форматирование дат на оси X
+    plt.gca().xaxis.set_major_formatter(DateFormatter('%Y-%m-%d'))
+    plt.gcf().autofmt_xdate()
+
+    # Показать график
+    plt.grid(True)
+    plt.show()
+
 # Основной скрипт
 if __name__ == "__main__":
     root = tk.Tk()
@@ -132,3 +181,5 @@ if __name__ == "__main__":
             print(f"Распознанный текст с изображения {image_path}:\n{recognized_text}\n")
     else:
         print("Изображения не выбраны")
+
+    display_table_and_plot()
