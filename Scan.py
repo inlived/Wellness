@@ -2,7 +2,7 @@ import pytesseract
 from PIL import Image
 from datetime import datetime
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 import sqlite3
 import re
 import pandas as pd
@@ -31,6 +31,7 @@ def initialize():
     create_database()
     create_gui()
     display_table_and_plot()
+    check_last_test_date()
     root.mainloop()
 
 def style_graph():
@@ -85,6 +86,8 @@ def ocr_image(path):
 def create_database():
     conn = sqlite3.connect('medical_tests.db')
     cursor = conn.cursor()
+    # Дропаем таблицу для дебага
+    # cursor.execute(''' drop table if exists general_blood_test ''')
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS general_blood_test (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -181,6 +184,33 @@ def display_table_and_plot():
         ax.xaxis.set_major_formatter(DateFormatter('%Y-%m-%d'))
         fig.autofmt_xdate()
         canvas.draw()
+
+# Функция для проверки последнего анализа и создания напоминания
+def check_last_test_date():
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    # Получаем дату последнего анализа из базы данных
+    cursor.execute('''
+        SELECT MAX(date)
+        FROM general_blood_test
+    ''')
+    result = cursor.fetchone()
+    conn.close()
+
+    if result and result[0]:
+        last_test_date = datetime.strptime(result[0], '%Y-%m-%d').date()
+
+        # Рассчитываем разницу между сегодняшней датой и датой последнего анализа
+        days_since_last_test = (datetime.now().date() - last_test_date).days
+
+        # Если прошло больше 6 месяцев (примерно 180 дней), выводим напоминание
+        if days_since_last_test > 180:
+            messagebox.showwarning("Напоминание", "Пора сдать анализы! Последний анализ был сделан более 6 месяцев назад.")
+    else:
+        # Если данных о последних анализах нет, можно предложить пользователю загрузить данные
+        messagebox.showinfo("Напоминание", "Данных об анализах нет. Пожалуйста, загрузите результаты анализов.")
+
 
 if __name__ == "__main__":
     initialize()
